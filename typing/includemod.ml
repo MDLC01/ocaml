@@ -107,6 +107,7 @@ module Error = struct
     missings: signature_item list;
     incompatibles: (Ident.t * sigitem_symptom) list;
     oks: (int * module_coercion) list;
+    additions: signature_item list;
     untypables: (signature_item * signature_item * int) list;
   }
   and sigitem_symptom =
@@ -381,9 +382,9 @@ module Sign_diff = struct
   type t = {
     runtime_coercions: (int * Typedtree.module_coercion) list;
     shape_map: Shape.Map.t;
-    deep_modifications:bool;
+    deep_modifications: bool;
     errors: (Ident.t * Error.sigitem_symptom) list;
-    untypables: ((Types.signature_item as 'it) * 'it * int) list
+    untypables: ((Types.signature_item as 'it) * 'it * int) list;
   }
 
   let empty = {
@@ -391,7 +392,7 @@ module Sign_diff = struct
     shape_map = Shape.Map.empty;
     deep_modifications = false;
     errors = [];
-    untypables = []
+    untypables = [];
   }
 
   let merge x y =
@@ -402,7 +403,7 @@ module Sign_diff = struct
           the last shape map contains all previous elements. *)
       deep_modifications = x.deep_modifications || y.deep_modifications;
       errors = x.errors @ y.errors;
-      untypables = x.untypables @ y.untypables
+      untypables = x.untypables @ y.untypables;
     }
 end
 
@@ -653,7 +654,7 @@ and signatures  ~in_eq ~loc env ~mark subst sig1 sig2 mod_shape =
      Return a coercion list indicating, for all run-time components
      of sig2, the position of the matching run-time components of sig1
      and the coercion to be applied to it. *)
-  let rec pair_components subst paired unpaired = function
+  let rec pair_components subst paired unpaired additions = function
       [] ->
         let open Sign_diff in
         let d =
@@ -661,7 +662,7 @@ and signatures  ~in_eq ~loc env ~mark subst sig1 sig2 mod_shape =
             Shape.Map.empty
             (List.rev paired)
         in
-        begin match unpaired, d.errors, d.runtime_coercions, d.leftovers with
+        begin match unpaired, d.errors, d.runtime_coercions, d.untypables with
             | [], [], cc, [] ->
                 let shape =
                   if not d.deep_modifications && exported_len1 = exported_len2
@@ -673,11 +674,13 @@ and signatures  ~in_eq ~loc env ~mark subst sig1 sig2 mod_shape =
                 else
                   Ok (Tcoerce_structure (cc, id_pos_list), shape)
             | missings, incompatibles, runtime_coercions, untypables ->
+                let additions = additions |> FieldMap.to_list |> List.map snd in
                 Error {
                   Error.env=new_env;
                   missings;
                   incompatibles;
                   oks=runtime_coercions;
+                  additions;
                   untypables;
                 }
         end
@@ -695,6 +698,7 @@ and signatures  ~in_eq ~loc env ~mark subst sig1 sig2 mod_shape =
         in
         begin match FieldMap.find name2 comps1 with
         | (id1, item1, pos1) ->
+          let updated_additions = FieldMap.remove name2 additions in
           let new_subst =
             match item2 with
               Sig_type _ ->
@@ -708,16 +712,17 @@ and signatures  ~in_eq ~loc env ~mark subst sig1 sig2 mod_shape =
                 subst
           in
           pair_components new_subst
-            ((item1, item2, pos1) :: paired) unpaired rem
+            ((item1, item2, pos1) :: paired) unpaired updated_additions rem
         | exception Not_found ->
           let unpaired =
             if report then
               item2 :: unpaired
             else unpaired in
-          pair_components subst paired unpaired rem
+          pair_components subst paired unpaired additions rem
         end in
   (* Do the pairing and checking, and return the final coercion *)
-  pair_components subst [] [] sig2
+  let additions = FieldMap.map (fun (_, item, _) -> item) comps1 in
+  pair_components subst [] [] additions sig2
 
 (* Inclusion between signature components *)
 
@@ -729,7 +734,7 @@ and signature_components  ~in_eq ~loc old_env ~mark env subst
       let shape_modified = ref false in
       let id, item, shape_map, present_at_runtime =
         match sigi1, sigi2 with
-        | Sig_value(id1, valdecl1, _) ,Sig_value(_id2, valdecl2, _) ->
+        | Sig_value(id1, valdecl1, _), Sig_value(_id2, valdecl2, _) ->
             let item =
               value_descriptions ~loc env ~mark subst id1 valdecl1 valdecl2
             in
