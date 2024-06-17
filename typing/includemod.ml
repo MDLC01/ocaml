@@ -109,6 +109,7 @@ module Error = struct
     oks: (int * module_coercion) list;
     additions: signature_item list;
     untypables: (signature_item * signature_item * int) list;
+    subst: Subst.t;
   }
   and sigitem_symptom =
     | Core of core_sigitem_symptom
@@ -682,6 +683,7 @@ and signatures  ~in_eq ~loc env ~mark subst sig1 sig2 mod_shape =
                   oks=runtime_coercions;
                   additions;
                   untypables;
+                  subst;
                 }
         end
     | item2 :: rem ->
@@ -1221,7 +1223,7 @@ let signatures env ~mark sig1 sig2 =
   | Ok (cc, _) -> cc
   | Error reason -> raise (Error(env,Error.(In_Signature reason)))
 
-let type_declarations ~loc env ~mark id decl1 decl2 =
+let check_type_declarations ~loc env ~mark id decl1 decl2 =
   match type_declarations ~loc env ~mark Subst.identity id decl1 decl2 with
   | Ok _ -> ()
   | Error (Error.Core reason) ->
@@ -1240,12 +1242,6 @@ let expand_module_alias ~strengthen env path =
   | Ok x -> x
   | Result.Error _ ->
       raise (Error(env,In_Expansion(Error.Unbound_module_path path)))
-
-let is_modtype_equiv env mty1 mty2 =
-  let loc = Warnings.ghost_loc_in_file "dummy" in
-  match check_modtype_equiv ~in_eq:false ~loc env ~mark:Mark_both mty1 mty2 with
-  | Ok _ -> true
-  | Error _ -> false
 
 let check_modtype_equiv ~loc env id mty1 mty2 =
   match check_modtype_equiv ~in_eq:false ~loc env ~mark:Mark_both mty1 mty2 with

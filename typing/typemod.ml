@@ -231,7 +231,7 @@ let check_type_decl env sg loc id row_id newdecl decl =
     | Some fresh_row_id -> Env.add_type ~check:false fresh_row_id newdecl env
   in
   let env = Env.add_signature sg env in
-  Includemod.type_declarations ~mark:Mark_both ~loc env fresh_id newdecl decl;
+  Includemod.check_type_declarations ~mark:Mark_both ~loc env fresh_id newdecl decl;
   Typedecl.check_coherence env loc path newdecl
 
 let make_variance p n i =
