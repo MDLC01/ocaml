@@ -104,12 +104,14 @@ module Error = struct
 
   and signature_symptom = {
     env: Env.t;
+    subst: Subst.t;
+    sig1: signature;
+    sig2: signature;
     missings: signature_item list;
     incompatibles: (Ident.t * sigitem_symptom) list;
     oks: (int * module_coercion) list;
     additions: signature_item list;
     untypables: (signature_item * signature_item * int) list;
-    subst: Subst.t;
   }
   and sigitem_symptom =
     | Core of core_sigitem_symptom
@@ -678,12 +680,14 @@ and signatures  ~in_eq ~loc env ~mark subst sig1 sig2 mod_shape =
                 let additions = additions |> FieldMap.to_list |> List.map snd in
                 Error {
                   Error.env=new_env;
+                  subst;
+                  sig1;
+                  sig2;
                   missings;
                   incompatibles;
                   oks=runtime_coercions;
                   additions;
                   untypables;
-                  subst;
                 }
         end
     | item2 :: rem ->
@@ -1200,6 +1204,12 @@ module Functor_app_diff = struct
 
 end
 
+let is_modtype_eq ~loc env ~mark subst mty1 mty2 =
+  match modtypes ~in_eq:false ~loc env ~mark subst mty1 mty2 Shape.dummy_mod
+  with
+  | Ok _ -> true
+  | Error _ -> false
+
 (* Hide the context and substitution parameters to the outside world *)
 
 let modtypes_with_shape ~shape ~loc env ~mark mty1 mty2 =
@@ -1216,9 +1226,9 @@ let modtypes ~loc env ~mark mty1 mty2 =
   | Ok (cc, _) -> cc
   | Error reason -> raise (Error (env, Error.(In_Module_type reason)))
 
-let signatures env ~mark sig1 sig2 =
+let signatures env ?(subst = Subst.identity) ~mark sig1 sig2 =
   match signatures ~in_eq:false ~loc:Location.none env ~mark
-          Subst.identity sig1 sig2 Shape.dummy_mod
+          subst  sig1 sig2 Shape.dummy_mod
   with
   | Ok (cc, _) -> cc
   | Error reason -> raise (Error(env,Error.(In_Signature reason)))

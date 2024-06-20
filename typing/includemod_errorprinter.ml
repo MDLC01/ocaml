@@ -788,296 +788,203 @@ and functor_symptom ~expansion_token ~env ~before ~ctx = function
       module_type ~expansion_token ~eqmode:false ~env ~before ~ctx res
   | Params d -> functor_params ~expansion_token ~env ~before ~ctx d
 
-and signature ~expansion_token ~env ~before ~ctx sgs =
-  let open struct
-    type ('v, 't) field = {
-      item : Types.signature_item;
-      value : 'v;
-      type_ : 't;
-    }
-
-    let field_name field = Ident.name (Types.signature_item_id field.item)
-
-    type ('v, 't) suggestions = {
-      add: ('v, 't) field list;
-      rename: (('v, 't) field * string) list;
-    }
-  end in
-
-  let fuzzy_match_names compatibility_test missings additions =
-    let cutoff = 8 in
-    let m = List.length missings in
-    let n = List.length additions in
-
-    (* An implementation of the Gale-Shapley algorithm, where missing fields
-       propose and added fields accept or refuse. *)
-    let stable_marriages () =
-      let missing_fields = Array.of_list missings in
-      let added_fields = Array.of_list additions in
-
-      let preferences =
-        let added_names =
-          additions
-          |> List.mapi (fun j field -> (field_name field, j))
-          |> Misc.Trie.of_list
-        in
-        Array.init m (fun i ->
-            let missing_name = field_name missing_fields.(i) in
-            Misc.Trie.compute_preferences ~cutoff added_names missing_name)
-      in
-      (* [is_married.(i)] indicates whether there exists a [j] such that
-         [missing_fields.(i)] and [added_fields.(j)] are married. *)
-      let is_married = Array.make m false in
-      (* [added_fields.(j)] is married with [missing_fields.(i)] iff
-         [added_fields.(j) = Some (i, d)] where [d] is the edition distance
-         between the names. *)
-      let marriages = Array.make n None in
-
-      (* Marries [missing_fields.(i)] with [added_fields.(j)], unless
-         [added_fields.(j)] already has a better marriage. *)
-      let try_marry i j d =
-        if compatibility_test missing_fields.(i) added_fields.(j) then
-          match marriages.(j) with
-          | None ->
-              marriages.(j) <- Some (i, d);
-              is_married.(i) <- true
-          | Some (i', d') ->
-              if d < d' then (
-                marriages.(j) <- Some (i, d);
-                is_married.(i) <- true;
-                is_married.(i') <- false)
-      in
-
-      let ok = ref false in
-      while not !ok do
-        ok := true;
-        for i = 0 to m - 1 do
-          if not is_married.(i) then
-            match preferences.(i) () with
-            | Seq.Nil -> ()
-            | Seq.Cons ((j, d), tl) ->
-                ok := false;
-                preferences.(i) <- tl;
-                try_marry i j d
-        done
-      done;
-
-      let actually_missing = List.filteri (fun i _ -> not is_married.(i)) missings in
-      let name_changes = ref [] in
-      for j = 0 to n - 1 do
-        match marriages.(j) with
-        | None -> ()
-        | Some (i, _) ->
-            name_changes := (added_fields.(j), field_name missing_fields.(i)) :: !name_changes
-      done;
-
-      {
-        add = actually_missing;
-        rename = !name_changes;
-      }
-    in
-
-    let greedy () =
-      let rec list_extract predicate l =
-        match l with
-        | [] -> None
-        | hd :: tl when predicate hd -> Some (hd, tl)
-        | hd :: tl -> (
-            match list_extract predicate tl with
-            | None -> None
-            | Some (x, tl') -> Some (x, hd :: tl'))
-      in
-
-      let compute_distance expected_field added_field =
-        if compatibility_test expected_field added_field then
-          Misc.Maybe_infinite.of_option (Misc.edit_distance (field_name expected_field) (field_name added_field) cutoff)
-        else
-          Misc.Maybe_infinite.Infinity ()
-      in
-
-      let remaining_added_fields = ref additions in
-      let name_changes = ref [] in
-      let actually_missing =
-        List.filter
-          (fun missing_field ->
-            match
-              list_extract
-                (fun added_field ->
-                  compute_distance missing_field added_field
-                    < Misc.Maybe_infinite.Finite cutoff)
-                !remaining_added_fields
-            with
-            | None -> true
-            | Some (added_field, additions) ->
-                name_changes := (added_field, field_name missing_field) :: !name_changes;
-                remaining_added_fields := additions;
-                false)
-          missings;
-      in
-
-      {
-        add = actually_missing;
-        rename = !name_changes;
-      }
-    in
-
-    if m * n <= 1_000_000 then
-      stable_marriages ()
-    else
-      greedy ()
-  in
+and signature ~expansion_token ~env:_ ~before ~ctx:_ sgs =
+  let open Includemod_modulediffer in
 
   let suggestion_for_any_order destructor compatibility_test =
     let missing_fields = List.filter_map destructor sgs.missings in
     let added_fields = List.filter_map destructor sgs.additions in
 
-    let suggestions = fuzzy_match_names compatibility_test missing_fields added_fields in
-
-    List.map
-      (Location.msg "%a" suggest_adding_field)
-      (List.map (fun field -> field.item) suggestions.add)
-    @ List.map
-      (Location.msg "%a" suggest_renaming_field)
-      (List.map (fun (field, suggested_name) -> field.item, suggested_name) suggestions.rename)
+    fuzzy_match_names compatibility_test missing_fields added_fields
   in
 
   let suggestions_for_first_order destructor compatibility_test =
     suggestion_for_any_order
-      (fun item -> Option.map (fun (item, value, type_) -> { item; value; type_ }) (destructor item))
+      (fun item ->
+        Option.map
+          (fun (item, value, type_) -> { item; value; type_ })
+          (destructor item))
       compatibility_test
   in
 
   let suggestions_for_second_order destructor compatibility_test =
     suggestion_for_any_order
-      (fun item -> Option.map (fun (item, value) -> { item; value; type_ = () }) (destructor item))
+      (fun item ->
+        Option.map
+          (fun (item, value) -> { item; value; type_ = () })
+          (destructor item))
       compatibility_test
   in
 
+  let suggestion_text suggestion =
+    match suggestion with
+    | Suggest_add item ->
+        (Location.msg "%a" suggest_adding_field) item
+    | Suggest_rename (item, suggested_name) ->
+        (Location.msg "%a" suggest_renaming_field) (item, suggested_name)
+    | Suggest_change_value_type (id, suggested_type) ->
+        (Location.msg "%a" suggest_changing_value_type) (id, suggested_type)
+  in
+
   Printtyp.wrap_printing_env ~error:true sgs.env (fun () ->
-      match sgs.missings, sgs.incompatibles with
-      | _ :: _, _ ->
-        let type_suggestions =
-          suggestions_for_second_order
-            (fun item ->
-              match item with
-              | Types.Sig_type  (_, decl, _, _) -> Some (item, decl)
-              | _ -> None)
-            (fun expected gotten ->
-              let id, loc, _ = Includemod.item_ident_name gotten.item in
-              match
-                Includemod.type_declarations
-                  ~mark:Mark_neither ~loc
-                  sgs.env sgs.subst id
-                  gotten.value expected.value
-              with
-              | Ok _ -> true
-              | Error _ -> false)
-        in
-
-        let module_type_suggestions =
-          suggestions_for_second_order
-            (fun item ->
-              match item with
-              | Types.Sig_modtype (_, decl, _) -> Some (item, decl)
-              | _ -> None)
-            (fun expected gotten ->
-              let _, loc, _ = Includemod.item_ident_name gotten.item in
-              Includemod.is_modtype_eq
-                ~loc sgs.env ~mark:Mark_neither sgs.subst
-                (Option.get gotten.value.Types.mtd_type)
-                (Option.get expected.value.Types.mtd_type))
-        in
-
-        let class_type_suggestions =
-          suggestions_for_second_order
-            (fun item ->
-              match item with
-              | Types.Sig_class_type (_, decl, _, _) -> Some (item, decl)
-              | _ -> None)
-            (fun expected gotten ->
-              let _, loc, _ = Includemod.item_ident_name gotten.item in
-              match
-                Includemod.class_type_declarations
-                  ~loc ~old_env:sgs.env sgs.env sgs.subst
-                  gotten.value expected.value
-              with
-              | Ok _ -> true
-              | Error _ -> false)
-        in
-
-        let value_suggestions =
-          suggestions_for_first_order
-            (fun item ->
-              match item with
-              | Types.Sig_value (_, desc, _) ->
-                  Some (item, desc, desc.val_type)
-              | _ -> None)
-            (fun expected gotten ->
-              let id, loc, _ = Includemod.item_ident_name gotten.item in
-              match
-                Includemod.value_descriptions
-                  ~mark:Mark_neither ~loc
-                  sgs.env sgs.subst id
-                  gotten.value expected.value
-              with
-              | Ok _ -> true
-              | Error _ -> false)
-        in
-
-        let value_type_changes =
-          sgs.incompatibles
-          |> List.filter_map (function
-            | id, Includemod.Error.Core (Includemod.Error.Value_descriptions {expected; _}) -> Some (id, expected.val_type)
-            | _ -> None)
-        in
-
-        let module_suggestions =
-          suggestions_for_first_order
-            (fun item ->
-              match item with
-              | Types.Sig_module (_, _, decl, _, _) ->
-                  Some (item, decl, decl.md_type)
-              | _ -> None)
-            (fun expected gotten ->
-              let _, loc, _ = Includemod.item_ident_name gotten.item in
-              Includemod.is_modtype_eq
-                ~loc sgs.env ~mark:Mark_neither sgs.subst
-                gotten.type_
-                expected.type_)
-        in
-
-        let class_suggestions =
-          suggestions_for_first_order
-            (fun item ->
-              match item with
-              | Types.Sig_class (_, decl, _, _) ->
-                  Some (item, decl, decl.cty_type)
-              | _ -> None)
-            (fun expected gotten ->
-              let _, loc, _ = Includemod.item_ident_name gotten.item in
-              match
-                Includemod.class_declarations
-                  ~old_env:sgs.env sgs.env sgs.subst
-                  expected.value gotten.value
-              with
-              | Ok _ -> true
-              | Error _ -> false)
-        in
-
-        if expansion_token then
+      let rec compute_succesive_suggestions sgs i =
+        if i = 0 then
           []
-          @ class_suggestions
-          @ module_suggestions
-          @ value_suggestions
-          @ List.map (Location.msg "%a" suggest_changing_value_type) value_type_changes
-          @ class_type_suggestions
-          @ module_type_suggestions
-          @ type_suggestions
-          @ before
         else
-          before
-      | [], a :: _ -> sigitem ~expansion_token ~env:sgs.env ~before ~ctx a
-      | [], [] -> assert false
+          let type_suggestions =
+            suggestions_for_second_order
+              (fun item ->
+                match item with
+                | Types.Sig_type  (_, decl, _, _) -> Some (item, decl)
+                | _ -> None)
+              (fun expected gotten ->
+                let id, loc, _ = Includemod.item_ident_name gotten.item in
+                match
+                  Includemod.type_declarations
+                    ~mark:Mark_neither ~loc
+                    sgs.env sgs.subst id
+                    gotten.value expected.value
+                with
+                | Ok _ -> true
+                | Error _ -> false)
+          in
+
+          let module_type_suggestions =
+            suggestions_for_second_order
+              (fun item ->
+                match item with
+                | Types.Sig_modtype (_, decl, _) -> Some (item, decl)
+                | _ -> None)
+              (fun expected gotten ->
+                let _, loc, _ = Includemod.item_ident_name gotten.item in
+                Includemod.is_modtype_eq
+                  ~loc sgs.env ~mark:Mark_neither sgs.subst
+                  (Option.get gotten.value.Types.mtd_type)
+                  (Option.get expected.value.Types.mtd_type))
+          in
+
+          let class_type_suggestions =
+            suggestions_for_second_order
+              (fun item ->
+                match item with
+                | Types.Sig_class_type (_, decl, _, _) -> Some (item, decl)
+                | _ -> None)
+              (fun expected gotten ->
+                let _, loc, _ = Includemod.item_ident_name gotten.item in
+                match
+                  Includemod.class_type_declarations
+                    ~loc ~old_env:sgs.env sgs.env sgs.subst
+                    gotten.value expected.value
+                with
+                | Ok _ -> true
+                | Error _ -> false)
+          in
+
+          let value_suggestions =
+            suggestions_for_first_order
+              (fun item ->
+                match item with
+                | Types.Sig_value (_, desc, _) ->
+                    Some (item, desc, desc.val_type)
+                | _ -> None)
+              (fun expected gotten ->
+                let id, loc, _ = Includemod.item_ident_name gotten.item in
+                match
+                  Includemod.value_descriptions
+                    ~mark:Mark_neither ~loc
+                    sgs.env sgs.subst id
+                    gotten.value expected.value
+                with
+                | Ok _ -> true
+                | Error _ -> false)
+          in
+
+          let value_type_changes =
+            sgs.incompatibles
+            |> List.filter_map Includemod.Error.(function
+              | id, Core (Value_descriptions {expected; _}) ->
+                Some (Suggest_change_value_type (id, expected.val_type))
+              | _ -> None)
+          in
+
+          let module_suggestions =
+            suggestions_for_first_order
+              (fun item ->
+                match item with
+                | Types.Sig_module (_, _, decl, _, _) ->
+                    Some (item, decl, decl.md_type)
+                | _ -> None)
+              (fun expected gotten ->
+                let _, loc, _ = Includemod.item_ident_name gotten.item in
+                Includemod.is_modtype_eq
+                  ~loc sgs.env ~mark:Mark_neither sgs.subst
+                  gotten.type_
+                  expected.type_)
+          in
+
+          let class_suggestions =
+            suggestions_for_first_order
+              (fun item ->
+                match item with
+                | Types.Sig_class (_, decl, _, _) ->
+                    Some (item, decl, decl.cty_type)
+                | _ -> None)
+              (fun expected gotten ->
+                let _, loc, _ = Includemod.item_ident_name gotten.item in
+                match
+                  Includemod.class_declarations
+                    ~old_env:sgs.env sgs.env sgs.subst
+                    expected.value gotten.value
+                with
+                | Ok _ -> true
+                | Error _ -> false)
+          in
+
+          let new_suggestions =
+            class_suggestions
+            (* @ class_type_changes *)
+            @ module_suggestions
+            (* @ module_type_changes *)
+            @ value_suggestions
+            @ value_type_changes
+            @ class_type_suggestions
+            @ module_type_suggestions
+            @ type_suggestions
+          in
+
+          let (env', subst') =
+            List.fold_left
+              (fun (env, subst) suggestion ->
+                match suggestion with
+                | Suggest_add item ->
+                    (Env.add_item item env, subst)
+                | Suggest_rename (Sig_type (id, _, _, _), suggested_name) ->
+                    let old_path = Path.Pident id in
+                    let new_ident = Ident.create_local suggested_name in
+                    (env, Subst.add_type new_ident old_path subst)
+                | Suggest_rename (item, suggested_name) ->
+                    let renamed_item =
+                      Types.rename_item (Ident.create_local suggested_name) item
+                    in
+                    (Env.add_item renamed_item env, subst)
+                | Suggest_change_value_type (_id, _ty) ->
+                    (env, subst)
+              )
+              (sgs.env, sgs.subst)
+              new_suggestions
+          in
+
+          match compute_signature_diff env' subst' sgs.sig1 sgs.sig2 with
+          | None -> new_suggestions
+          | Some sgs ->
+              compute_succesive_suggestions sgs (i - 1) @ new_suggestions
+      in
+
+      if expansion_token then
+        let suggestions = compute_succesive_suggestions sgs 1 in
+        List.map suggestion_text suggestions @ before
+      else
+        before
     )
 
 and sigitem ~expansion_token ~env ~before ~ctx (name,s) = match s with
