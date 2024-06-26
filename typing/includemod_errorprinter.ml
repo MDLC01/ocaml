@@ -974,7 +974,6 @@ and signature ~expansion_token ~env:_ ~before ~ctx:_ sgs =
                     Some (Field.first_order item decl decl.cty_type)
                 | _ -> None)
               (fun expected gotten ->
-                let _, loc, _ = Includemod.item_ident_name gotten.item in
                 match
                   Includemod.class_declarations
                     ~old_env:sgs.env sgs.env sgs.subst
@@ -1011,9 +1010,9 @@ and signature ~expansion_token ~env:_ ~before ~ctx:_ sgs =
 
           match compute_signature_diff sgs.env subst' sgs.sig1 sgs.sig2 with
           | None -> new_suggestions
-          | Some sgs ->
+          | Some sgs' ->
               compute_succesive_suggestions
-                sgs
+                sgs'
                 all_affected_items
                 (i - 1)
               @ new_suggestions
