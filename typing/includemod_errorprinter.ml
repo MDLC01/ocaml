@@ -716,13 +716,6 @@ let eq_module_types {Err.got=mty1; expected=mty2} =
     !Oprint.out_module_type (Printtyp.tree_of_modtype mty1)
     !Oprint.out_module_type (Printtyp.tree_of_modtype mty2)
 
-let module_type_declarations id {Err.got=d1 ; expected=d2} =
-  Format.dprintf
-    "@[<hv 2>Module type declarations do not match:@ \
-     %a@;<1 -2>does not match@ %a@]"
-    !Oprint.out_sig_item (Printtyp.tree_of_modtype_declaration id d1)
-    !Oprint.out_sig_item (Printtyp.tree_of_modtype_declaration id d2)
-
 let interface_mismatch ppf (diff: _ Err.diff) =
   Format.fprintf ppf
     "The implementation %a@ does not match the interface %a:@ "
@@ -835,45 +828,6 @@ and signature ~expansion_token ~env:_ ~before ~ctx:_ sgs =
       else
         before
     )
-
-and sigitem ~expansion_token ~env ~before ~ctx (name,s) = match s with
-  | Core c ->
-      dwith_context ctx (core env name c) :: before
-  | Module_type diff ->
-      module_type ~expansion_token ~eqmode:false ~env ~before
-        ~ctx:(Context.Module name :: ctx) diff
-  | Module_type_declaration diff ->
-      module_type_decl ~expansion_token ~env ~before ~ctx name diff
-
-and module_type_decl ~expansion_token ~env ~before ~ctx id diff =
-  let next =
-    dwith_context_and_elision ctx (module_type_declarations id) diff in
-  let before = next :: before in
-  match diff.symptom with
-  | Not_less_than mts ->
-      let before =
-        Location.msg "The first module type is not included in the second"
-        :: before
-      in
-      module_type ~expansion_token ~eqmode:true ~before ~env
-        ~ctx:(Context.Modtype id :: ctx) mts
-  | Not_greater_than mts ->
-      let before =
-        Location.msg "The second module type is not included in the first"
-        :: before in
-      module_type ~expansion_token ~eqmode:true ~before ~env
-        ~ctx:(Context.Modtype id :: ctx) mts
-  | Incomparable mts ->
-      module_type ~expansion_token ~eqmode:true ~env ~before
-        ~ctx:(Context.Modtype id :: ctx) mts.less_than
-  | Illegal_permutation c ->
-      begin match diff.got.Types.mtd_type with
-      | None -> assert false
-      | Some mty ->
-          with_context (Modtype id::ctx)
-            (Illegal_permutation.pp Context.alt_pp env) (mty,c)
-          :: before
-      end
 
 and functor_arg_diff ~expansion_token env (patch: _ Diffing.change) =
   match patch with
