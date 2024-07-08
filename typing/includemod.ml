@@ -1228,7 +1228,7 @@ let modtypes ~loc env ~mark mty1 mty2 =
 
 let signatures env ?(subst = Subst.identity) ~mark sig1 sig2 =
   match signatures ~in_eq:false ~loc:Location.none env ~mark
-          subst  sig1 sig2 Shape.dummy_mod
+          subst sig1 sig2 Shape.dummy_mod
   with
   | Ok (cc, _) -> cc
   | Error reason -> raise (Error(env,Error.(In_Signature reason)))
