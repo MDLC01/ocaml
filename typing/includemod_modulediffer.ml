@@ -530,10 +530,16 @@ let compute_second_order_suggestions sgs =
         | _ -> None)
       (fun expected gotten ->
         let _, loc, _ = Includemod.item_ident_name gotten.Field.item in
-        Includemod.is_modtype_eq
-          ~loc sgs.env ~mark:Mark_neither sgs.subst
-          (Option.get gotten.Field.value.Types.mtd_type)
-          (Option.get expected.Field.value.Types.mtd_type))
+        match
+          gotten.Field.value.Types.mtd_type,
+          expected.Field.value.Types.mtd_type
+        with
+        | _, None -> true
+        | None, Some _ -> false
+        | Some gotten_type, Some expected_type ->
+            Includemod.is_modtype_eq
+              ~loc sgs.env ~mark:Mark_neither sgs.subst
+              gotten_type expected_type)
       (fun _ -> None)
   in
 
