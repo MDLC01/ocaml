@@ -667,41 +667,41 @@ let core env id x =
 
 let suggest_adding_field ppf item =
   let id, _, kind = Includemod.item_ident_name item in
-  Format.fprintf ppf "Try adding a %s %a"
+  Format.fprintf ppf "Try adding a %s %s"
     (Includemod.kind_of_field_desc kind)
-    Style.inline_code (Ident.name id)
+    (Ident.name id)
 
 let suggest_renaming_field ppf (item, suggested_name) =
   let current_id, _, kind = Includemod.item_ident_name item in
-  Format.fprintf ppf "@{<hint>Hint@}: Try renaming %s %a to %a"
+  Format.fprintf ppf "@{<hint>Hint@}: Try renaming %s %s to %a"
     (Includemod.kind_of_field_desc kind)
-    Style.inline_code (Ident.name current_id)
+    (Ident.name current_id)
     Style.inline_code suggested_name
 
 let suggest_changing_type_of_value ppf (item, suggested_type) =
   let id, _, _ = Includemod.item_ident_name item in
-  Format.fprintf ppf "Try changing value %a to be a %a"
-    Style.inline_code (Ident.name id)
+  Format.fprintf ppf "Try changing value %s to be a %a"
+    (Ident.name id)
     (Style.as_inline_code Printtyp.type_expr) suggested_type
 
 let suggest_changing_type_of_module ppf (item, suggested_type) =
   let id, _, _ = Includemod.item_ident_name item in
-  Format.fprintf ppf "Try changing module %a to be a@ %a"
-    Style.inline_code (Ident.name id)
+  Format.fprintf ppf "Try changing module %s to be a@ %a"
+    (Ident.name id)
     (fun fmt mty ->
       !Oprint.out_module_type fmt (Printtyp.tree_of_modtype mty))
     suggested_type
 
 let suggest_changing_type_of_class ppf (item, suggested_type) =
   let id, _, _ = Includemod.item_ident_name item in
-  Format.fprintf ppf "Try changing class %a to be a@ %a"
-    Style.inline_code (Ident.name id)
+  Format.fprintf ppf "Try changing class %s to be a@ %a"
+    (Ident.name id)
     (Printtyp.class_declaration id) suggested_type
 
 let suggest_changing_type ppf (item, suggested_type) =
   let id, _, _ = Includemod.item_ident_name item in
-  Format.fprintf ppf "Try changing type %a to@ %a"
-    Style.inline_code (Ident.name id)
+  Format.fprintf ppf "Try changing type %s to@ %a"
+    (Ident.name id)
     (fun fmt ty ->
       !Oprint.out_sig_item fmt
         (Printtyp.tree_of_type_declaration id ty Trec_not))
