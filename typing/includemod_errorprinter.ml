@@ -707,6 +707,15 @@ let suggest_changing_type ppf (item, suggested_type) =
         (Printtyp.tree_of_type_declaration id ty Trec_not))
     suggested_type
 
+let suggest_changing_module_type ppf (item, suggested_type) =
+  let id, _, _ = Includemod.item_ident_name item in
+  Format.fprintf ppf "Try changing module type %s to@ %a"
+    (Ident.name id)
+    (fun fmt mty ->
+      !Oprint.out_sig_item fmt
+        (Printtyp.tree_of_modtype_declaration id mty))
+    suggested_type
+
 let module_types {Err.got=mty1; expected=mty2} =
   Format.dprintf
     "@[<hv 2>Modules do not match:@ \
@@ -826,6 +835,9 @@ and signature ~expansion_token ~env:_ ~before ~ctx:_ sgs =
           (suggestion.subject, suggested_type)
     | Change_type suggested_type ->
         Location.msg "%a" suggest_changing_type
+          (suggestion.subject, suggested_type)
+    | Change_module_type suggested_type ->
+        Location.msg "%a" suggest_changing_module_type
           (suggestion.subject, suggested_type)
   in
 
